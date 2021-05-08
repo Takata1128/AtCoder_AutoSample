@@ -3,6 +3,7 @@ import requests
 from urllib.parse import urljoin
 import os
 import re
+import configparser
 
 LOGIN_URL = 'https://atcoder.jp/login?continue=https%3A%2F%2Fatcoder.jp%2F%3Flang%3Dja'
 PROBLEM_INFO_LIST = ['INDEX', 'NAME', 'TL', 'ML']
@@ -16,6 +17,7 @@ OTHER_DIRNAME = 'Others'
 class TestCasesScraper:
     def __init__(self, contest_url):
         self._url = contest_url
+        self.config = configparser.ConfigParser()
         self.contest_name = os.path.basename(self._url)
         self.cur_dir = os.path.dirname(__file__)
         self.cc_template = ''
@@ -57,6 +59,7 @@ class TestCasesScraper:
 
     def get_testcases(self):
         session = requests.session()
+        self._login(session)
         task_page = session.get(self._url+'/tasks/')
         task_page_soup = BeautifulSoup(task_page.text, 'lxml')
         problems_elms = task_page_soup.select('div table tbody tr')
@@ -74,7 +77,20 @@ class TestCasesScraper:
                 urljoin(self._url+'/tasks/', link.get('href')), problem_info[0], sample_dir, session)
 
     def _login(self, session):
-        pass
+        r = session.get(LOGIN_URL)
+        s = BeautifulSoup(r.text, 'lxml')
+        csrf_token = s.find(attrs={'name': 'csrf_token'}).get('value')
+        login_info = {
+            'csrf_token':  csrf_token,
+            'username': self.config['DEFAULT']['USERNAME'],
+            'password': self.config['DEFAULT']['PASSWORD']
+        }
+        result = session.post(LOGIN_URL, data=login_info)
+        result.raise_for_status()
+        if result.status_code == 200:
+            print('Log in!')
+        else:
+            print('Failed to log in...')
 
 
 if __name__ == "__main__":
@@ -82,7 +98,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument("contest_url", help="set contest url", type=str)
+    parser.add_argument("username", help='set username', type=str)
+    parser.add_argument("password", help='set password', type=str)
+
     args = parser.parse_args()
 
     ac = TestCasesScraper(args.contest_url)
+
+    if args.username and args.password:
+        ac.config['DEFAULT']['USERNAME'] = args.username
+        ac.config['DEFAULT']['PASSWORD'] = args.password
+        with open('config.ini', 'w') as cf:
+            ac.config.write(cf)
+    else:
+        ac.config.read('config.ini')
+
     ac.get_testcases()
